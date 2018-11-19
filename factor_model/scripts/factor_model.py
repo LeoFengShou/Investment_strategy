@@ -13,6 +13,8 @@ import matrix_helper
 import copy
 from scipy.stats.mstats import gmean
 import numpy as np
+from numpy import matmul
+from numpy.linalg import inv
 
 
 def generate_factor(factor_returns, asset_returns):
@@ -52,6 +54,7 @@ def generate_factor(factor_returns, asset_returns):
 	residual_var_matrix = np.diag(np.diag(np.cov(epsilon)))
 	expected_return = np.add(alphas, matmul(betas.transpose(), expected_factor_return))
 	covariance_matrix = np.add(matmul(matmul(betas.transpose(), factor_covariance), betas), residual_var_matrix)
+	return expected_return, covariance_matrix
 	
 
 def get_expected_factor_return(factor_returns):
