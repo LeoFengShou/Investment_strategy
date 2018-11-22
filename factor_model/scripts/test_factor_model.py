@@ -32,7 +32,6 @@ class Test_Factor_Model(unittest.TestCase):
 			self.assertEqual(expected_returns[i], round(test_expected_returns[i], 4))
 
 		expected_covariance_matrix = [[0.0002, 0.0], [0.0, 0.0012]]
-		# import pdb;pdb.set_trace()
 		for i in range(len(expected_covariance_matrix)):
 			for j in range(len(expected_covariance_matrix[0])):
 					self.assertEqual(expected_covariance_matrix[i][j], round(test_covariance_matrix[i][j], 4))

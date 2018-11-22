@@ -1,7 +1,9 @@
 import numpy as np 
 from numpy.linalg import inv
 from numpy import matmul
-
+import cvxopt
+import numpy
+from cvxopt import matrix
 
 
 def add_to_each_row(matrix, index, to_add):
@@ -24,3 +26,16 @@ def add_to_each_ele(matrix, to_add):
 	for i in range(len(matrix)):
 		for j in range(len(matrix[i])):
 			matrix[i][j] += to_add
+
+
+def cvxopt_solve_qp(P, q, G=None, h=None, A=None, b=None):
+    P = .5 * (P + P.T)  # make sure P is symmetric
+    args = [matrix(P), matrix(q)]
+    if G is not None:
+        args.extend([matrix(G), matrix(h)])
+        if A is not None:
+            args.extend([matrix(A), matrix(b)])
+    sol = cvxopt.solvers.qp(*args)
+    if 'optimal' not in sol['status']:
+        return None
+    return numpy.array(sol['x']).reshape((P.shape[1],))
