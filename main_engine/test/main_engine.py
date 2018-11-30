@@ -9,6 +9,8 @@ import argparse
 import datetime
 import numpy
 import copy
+import matplotlib.pyplot as plt
+import os
 
 import factor_model
 import MVO
@@ -21,6 +23,7 @@ ORIGINAL_CONSTANT = 0.5 # The extent to which to keep the original portfolio
 AMPLIFY_FACTOR = 1.5
 LOOK_BACK_L = 48
 MAX_LOOK_BACK_L = 2 * LOOK_BACK_L
+NUM_DATES_SHOWN = 6
 
 
 def main():
@@ -44,7 +47,7 @@ def main():
 		ticker_id_mapping = json.load(ticker_id_mapping_in)
 	with open(args.factor_data, "r") as factor_data_in:
 		factor_data = json.load(factor_data_in)
-	# results1 = main_flow(asset_data, "Back-testing", user_input, id_ticker_mapping, ticker_id_mapping, factor_data)
+	#results1 = main_flow(asset_data, "Back-testing", user_input, id_ticker_mapping, ticker_id_mapping, factor_data)
 	#results2 = main_flow(asset_data, "Portfolio-domi", user_input, id_ticker_mapping, ticker_id_mapping, factor_data)
 	#with open("test_domi_result.json", "w") as results2_out:
 	#	json.dump(results2, results2_out, sort_keys = True, indent = 4)
@@ -52,8 +55,8 @@ def main():
 	results3 = main_flow(asset_data, "Portfolio-Construction", user_input, id_ticker_mapping, ticker_id_mapping, factor_data)
 	# with open("compound_test_user_input.json", "w") as compound_test_user_input_out:
 		# json.dump(results3["port"], compound_test_user_input_out, sort_keys = True, indent = 4)
-	results4 = main_flow(asset_data, "Back-testing", results3["port"], id_ticker_mapping, ticker_id_mapping, factor_data)
-	import pdb; pdb.set_trace()
+	# results4 = main_flow(asset_data, "Back-testing", results3["port"], id_ticker_mapping, ticker_id_mapping, factor_data)
+	# import pdb; pdb.set_trace()
 
 
 def main_flow(asset_data, function, user_input, id_ticker_mapping, ticker_id_mapping, factor_data):
@@ -72,12 +75,12 @@ def main_flow(asset_data, function, user_input, id_ticker_mapping, ticker_id_map
 	'''
 	if function == "Back-testing":
 		if not ("start_date" in user_input and "end_date" in user_input and "weight" in user_input):
-			print "not sufficient information provided in the user input"
+			print("not sufficient information provided in the user input")
 			return False
 		return back_testing_procedure(asset_data, user_input, id_ticker_mapping, ticker_id_mapping)
 	if function == "Portfolio-domi":
 		if not ("start_date" in user_input and "end_date" in user_input and "weight" in user_input):
-			print "not sufficient information provided in the user input"
+			print("not sufficient information provided in the user input")
 			return False
 		return port_domi_procedure(asset_data, user_input, id_ticker_mapping, ticker_id_mapping, factor_data)
 	if function == "Portfolio-Construction":
@@ -135,6 +138,9 @@ def back_testing_procedure(asset_data, user_input, id_ticker_mapping, ticker_id_
 	stats["mean_return"] = numpy.mean(cur_returns)
 	stats["volitility"] = numpy.std(cur_returns) / (len(cur_returns) ** 0.5)
 	stats["sharpe"] = stats["mean_return"] / stats["volitility"]
+	if not os.path.exists("img"):
+		os.mkdir("img")
+	plot_and_save(dates, [SP500_values, portfolio_values], ["SP500_values", "portfolio_values"], "img/back_res.png")
 	return {"portfolio_values": portfolio_values, "SP500_values": SP500_values, "dates": dates, "stats": stats}
 
 
@@ -213,6 +219,10 @@ def port_domi_procedure(asset_data, user_input, id_ticker_mapping, ticker_id_map
 	stats["mean_return"] = numpy.mean(cur_returns)
 	stats["volitility"] = numpy.std(cur_returns) / (len(cur_returns) ** 0.5)
 	stats["sharpe"] = stats["mean_return"] / stats["volitility"]
+	if not os.path.exists("img"):
+		os.mkdir("img")
+	plot_and_save(user_port_res_whole["dates"], [user_port_res_whole["portfolio_values"], portfolio_values]\
+					, ["user's portfolio", "improved portfolio"], "img/domi_res.png")
 	return {	"original_value": {"portfolio_values": user_port_res_whole["portfolio_values"], \
 									"stats": user_port_res_whole["stats"]}, \
 				"dominant": {"portfolio_values": portfolio_values, "stats": stats}, \
@@ -284,12 +294,39 @@ def port_cont_procedure(asset_data, user_input, id_ticker_mapping, ticker_id_map
 			cvar_port["weight"][assets_included[i]] = cvar_weight[i]
 	cvar_port_back_test_res = back_testing_procedure(asset_data, cvar_port, \
 														id_ticker_mapping, ticker_id_mapping)
-	import pdb; pdb.set_trace()
+	# import pdb; pdb.set_trace()
+	if not os.path.exists("img"):
+		os.mkdir("img")
+	plot_and_save(dates + ["2018-10-31"], [cvar_port_back_test_res["portfolio_values"], \
+											mvo_port_back_test_res["portfolio_values"]], \
+						["CVaR", "MVO"], "img/port_c_res.png")
 	if cvar_port_back_test_res["stats"]["sharpe"] > mvo_port_back_test_res["stats"]["sharpe"]:
-		return {"port": cvar_port, "back_test": cvar_port_back_test_res}
+		return {"port": cvar_port, "back_test": cvar_port_back_test_res, "taken": "CVaR"}
 	else:
-		return {"port": mvo_port, "back_test": mvo_port_back_test_res}
+		return {"port": mvo_port, "back_test": mvo_port_back_test_res, "taken": "MVO"}
+
+
+def plot_and_save(dates, arr_of_data, legends, filename):
+	for data in arr_of_data:
+		if len(data) != len(dates):
+			import pdb; pdb.set_trace()
+			print("THe length of data must be in the same length as date")
+			return
+	x_ticks = [dates[0]]
+	incre = int(len(dates) / NUM_DATES_SHOWN)
+	for i in range(NUM_DATES_SHOWN - 1):
+		x_ticks += [""] * (incre - 1) + [dates[(i + 1) * incre]]
+	x_ticks += [""] * (len(dates) - len(x_ticks) - 1) + [dates[-1]]
+	x = range(len(dates))
+
+	fig = plt.figure()
+	for i in range(len(arr_of_data)):
+		plt.plot(x, arr_of_data[i], label = legends[i])
+	plt.xticks(x, x_ticks, rotation='vertical')
+	plt.legend(loc='upper left')
+	fig.savefig(filename, dpi=fig.dpi)
 
 
 if __name__ == '__main__':
 	main()
+	# plot_and_save([1,2,3,4,5,6,7,8,9,10,11,12,13], [[1,2,3,4,5,6,7,8,9,10,11,12,13], [1,2,3,4,5,6,7,8,9,10,11,12,13]], "")
