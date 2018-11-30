@@ -19,13 +19,15 @@ import matrix_helper
 INITIAL_PORFOLIO_VALUE = 1000 # This value in general doesn't matter, just for practical purposes
 ORIGINAL_CONSTANT = 0.5 # The extent to which to keep the original portfolio
 AMPLIFY_FACTOR = 1.5
+LOOK_BACK_L = 48
+MAX_LOOK_BACK_L = 2 * LOOK_BACK_L
 
 
 def main():
 	parser = argparse.ArgumentParser()
 	parser.add_argument("--asset_data", default = "asset_data.json")
 	parser.add_argument("--function", default = "Back-testing", help = "One of Back-testing" \
-										+ ", Portfolio-domi, and Portfolio Construction")
+										+ ", Portfolio-domi, and Portfolio-Construction")
 	parser.add_argument("--user_input", default = "user_input.json", help = "The json file defines the user"\
 										+ " input")
 	parser.add_argument("--id_ticker_mapping", default = "id_ticker_mapping.json")
@@ -43,9 +45,16 @@ def main():
 	with open(args.factor_data, "r") as factor_data_in:
 		factor_data = json.load(factor_data_in)
 	# results1 = main_flow(asset_data, "Back-testing", user_input, id_ticker_mapping, ticker_id_mapping, factor_data)
-	results2 = main_flow(asset_data, "Portfolio-domi", user_input, id_ticker_mapping, ticker_id_mapping, factor_data)
+	#results2 = main_flow(asset_data, "Portfolio-domi", user_input, id_ticker_mapping, ticker_id_mapping, factor_data)
+	#with open("test_domi_result.json", "w") as results2_out:
+	#	json.dump(results2, results2_out, sort_keys = True, indent = 4)
+	# import pdb; pdb.set_trace()
+	results3 = main_flow(asset_data, "Portfolio-Construction", user_input, id_ticker_mapping, ticker_id_mapping, factor_data)
+	# with open("compound_test_user_input.json", "w") as compound_test_user_input_out:
+		# json.dump(results3["port"], compound_test_user_input_out, sort_keys = True, indent = 4)
+	results4 = main_flow(asset_data, "Back-testing", results3["port"], id_ticker_mapping, ticker_id_mapping, factor_data)
 	import pdb; pdb.set_trace()
-	
+
 
 def main_flow(asset_data, function, user_input, id_ticker_mapping, ticker_id_mapping, factor_data):
 	'''
@@ -72,10 +81,7 @@ def main_flow(asset_data, function, user_input, id_ticker_mapping, ticker_id_map
 			return False
 		return port_domi_procedure(asset_data, user_input, id_ticker_mapping, ticker_id_mapping, factor_data)
 	if function == "Portfolio-Construction":
-		if not ("start_date" in user_input and "end_date" in user_input and "target_return" in user_input):
-			print "not sufficient information provided in the user input"
-			return False
-		return port_cont_procedure(asset_data, user_input, id_ticker_mapping, ticker_id_mapping)
+		return port_cont_procedure(asset_data, user_input, id_ticker_mapping, ticker_id_mapping, factor_data)
 
 
 def back_testing_procedure(asset_data, user_input, id_ticker_mapping, ticker_id_mapping):
@@ -105,8 +111,10 @@ def back_testing_procedure(asset_data, user_input, id_ticker_mapping, ticker_id_
 	for i in range(len(dates)):
 		date = dates[i]
 		for ticker in user_input["weight"].keys():
-			asset_name = ticker_id_mapping[ticker]
-			# import pdb; pdb.set_trace()
+			if ticker in ticker_id_mapping:
+				asset_name = ticker_id_mapping[ticker]
+			else:
+				asset_name = ticker
 			if asset_name not in cur_value:
 				cur_value[asset_name] = INITIAL_PORFOLIO_VALUE * user_input["weight"][ticker]
 			if date in asset_data[asset_name]["dates"]:
@@ -123,10 +131,7 @@ def back_testing_procedure(asset_data, user_input, id_ticker_mapping, ticker_id_
 		if i > 0:
 			cur_returns[i - 1] = portfolio_values[i] / portfolio_values[i - 1] - 1
 	stats = {}
-	# try:
 	stats["total_return"] = portfolio_values[-1] / portfolio_values[0] - 1
-	# except:
-		# import pdb; pdb.set_trace()
 	stats["mean_return"] = numpy.mean(cur_returns)
 	stats["volitility"] = numpy.std(cur_returns) / (len(cur_returns) ** 0.5)
 	stats["sharpe"] = stats["mean_return"] / stats["volitility"]
@@ -158,34 +163,21 @@ def port_domi_procedure(asset_data, user_input, id_ticker_mapping, ticker_id_map
 	original_user_input = copy.deepcopy(user_input)
 	if user_input["start_date"] < "2004-01-31": user_input["start_date"] = "2004-01-31"
 	if user_input["end_date"] > "2018-10-31": user_input["end_date"] = "2018-10-31"
-	# print "call here -1"
 	user_port_res_whole = back_testing_procedure(asset_data, user_input, id_ticker_mapping, ticker_id_mapping)
 	feasible_start_date_index = find_next_available_date_index(asset_data, user_input["start_date"], "SP500", +1)
 	feasible_end_date_index = find_next_available_date_index(asset_data, user_input["end_date"], "SP500", -1)
 	dates = asset_data["SP500"]["dates"][feasible_start_date_index: feasible_end_date_index + 1]
-	# rebalance_dates = [0] * 10
-	# for i in range(10):
-	# 	rebalance_dates[i] = dates[i * int(len(dates) / 10)]
-	# rebalance_dates = sorted(list(set(rebalance_dates)))
-	dates = asset_data["SP500"]["dates"][feasible_start_date_index - 48: feasible_start_date_index] + dates
-	# cur_portfolio = {} # {asset_name: weight(decimal)}
-	# for ticker in user_input["weight"]:
-	# 	asset_name = ticker_id_mapping[ticker]
-	# 	cur_portfolio[asset_name] = user_input["weight"][ticker] * ORIGINAL_CONSTANT
+	dates = asset_data["SP500"]["dates"][feasible_start_date_index - LOOK_BACK_L: feasible_start_date_index] + dates
 	portfolio_values = [INITIAL_PORFOLIO_VALUE]
 	cur_portfolio = {}
 	cur_returns = []
 	start_debug = False
-	for i in range(48, len(dates), 1):
+	for i in range(LOOK_BACK_L, len(dates), 1):
 		date = dates[i]
-		user_input["start_date"] = dates[i - 48]  # Look back 4 years each time
+		user_input["start_date"] = dates[i - LOOK_BACK_L]  # Look back 4 years each time
 		user_input["end_date"] = date
-		# print "call here", i
-		# try:
 		user_port_res = back_testing_procedure(asset_data, user_input, id_ticker_mapping, ticker_id_mapping)
-		# except:
-			# import pdb; pdb.set_trace()
-		factor_matrix = prepare_factor_matrix(factor_data, i - 48, i, dates)
+		factor_matrix = prepare_factor_matrix(factor_data, i - LOOK_BACK_L, i, dates)
 		assets_included, asset_return_matrix = prepare_asset_return_matrix(asset_data, \
 												user_input["start_date"], user_input["end_date"], dates)
 		expected_returns, covariance_matrix = factor_model.generate_factor(factor_matrix, asset_return_matrix)
@@ -196,18 +188,10 @@ def port_domi_procedure(asset_data, user_input, id_ticker_mapping, ticker_id_map
 			if date in asset_data[asset_name]["dates"]:
 				new_port_value += asset_data[asset_name]["price_his"][asset_data[asset_name]["dates"].index(date)] \
 								* cur_shares[asset_name]
-				print new_port_value, asset_data[asset_name]["price_his"][asset_data[asset_name]["dates"].index(date)], cur_shares[asset_name]
 			else:
 				new_port_value += portfolio_values[-1] * cur_portfolio[asset_name]
-				print portfolio_values[-1], cur_portfolio[asset_name]
-				print "here"
-			# import pdb; pdb.set_trace()
 		if new_port_value != 0:
 			portfolio_values.append(new_port_value)
-			print new_port_value
-		else:
-			if new_port_value < 0:
-				import pdb; pdb.set_trace()
 		cur_portfolio = {} # {asset_name: weight(decimal)}
 		for ticker in user_input["weight"]:
 			asset_name = ticker_id_mapping[ticker]
@@ -217,25 +201,11 @@ def port_domi_procedure(asset_data, user_input, id_ticker_mapping, ticker_id_map
 				cur_portfolio[assets_included[j2]] += weight[j2] * (1 - ORIGINAL_CONSTANT)
 			else:
 				cur_portfolio[assets_included[j2]] = weight[j2] * (1 - ORIGINAL_CONSTANT)
-		su = 0
-		for wei in cur_portfolio.keys():
-			su += cur_portfolio[wei] 
-		if su > 1.01:
-			import pdb; pdb.set_trace()
-		print weight
 		cur_shares = {} # {asset_name: #shares}
 		for asset_name in cur_portfolio.keys():
-			# try:
 			if date in asset_data[asset_name]["dates"]:
 					cur_shares[asset_name] = portfolio_values[-1] * cur_portfolio[asset_name] / \
 								asset_data[asset_name]["price_his"][asset_data[asset_name]["dates"].index(date)]
-			# except:
-				# import pdb; pdb.set_trace()
-		# import pdb; pdb.set_trace()
-		# print new_port_value 
-		# print cur_portfolio
-		# print cur_shares
-		# print 
 		if len(portfolio_values) > 1:
 			cur_returns.append(portfolio_values[-1] / portfolio_values[-2] - 1)
 	stats = {}
@@ -265,12 +235,60 @@ def prepare_asset_return_matrix(asset_data, start_date, end_date, dates):
 			asset_return_matrix.append(asset_data[asset_name]["ret_his"]\
 									[asset_data[asset_name]["dates"].index(start_date) + 1: \
 									 asset_data[asset_name]["dates"].index(end_date) + 1])
-			if len(asset_data[asset_name]["ret_his"]\
-									[asset_data[asset_name]["dates"].index(start_date) + 1: \
-									 asset_data[asset_name]["dates"].index(end_date) + 1]) != 48:
-				import pdb; pdb.set_trace()
 			assets_included.append(asset_name)
 	return assets_included, matrix_helper.transpose(asset_return_matrix)
+
+
+def port_cont_procedure(asset_data, user_input, id_ticker_mapping, ticker_id_mapping, factor_data):
+	'''
+		Start and end date in user_input is for user to select what range of data to look at
+		If the user doesn't specify these two dates, default date will be used
+		The end date for look back is "2018-09-30" for factor data availability
+	'''
+	if "investment_length" not in user_input or user_input["investment_length"] > MAX_LOOK_BACK_L:
+		user_input["investment_length"] = LOOK_BACK_L
+	if "target_return" not in user_input: user_input["target_return"] = 0.1
+	user_input["end_date"] = "2018-09-30"
+	feasible_end_date_index = find_next_available_date_index(asset_data, user_input["end_date"], "SP500", -1)
+	dates = asset_data["SP500"]["dates"]\
+			[feasible_end_date_index - user_input["investment_length"]: feasible_end_date_index + 1]
+	factor_matrix = prepare_factor_matrix(factor_data, 0, len(dates) - 1, dates)
+	assets_included, asset_return_matrix = prepare_asset_return_matrix(asset_data, \
+												dates[0], dates[-1], dates)
+	expected_returns, covariance_matrix = factor_model.generate_factor(factor_matrix, asset_return_matrix)
+	mvo_weight = MVO.get_weight_from_MVO(expected_returns, covariance_matrix, \
+											user_input["target_return"])
+	mvo_port = {"weight": {}, "start_date": dates[0], "end_date": "2018-10-31"}
+	for i in range(len(assets_included)):
+		if assets_included[i] in id_ticker_mapping:
+			mvo_port["weight"][id_ticker_mapping[assets_included[i]]] = mvo_weight[i]
+		else:
+			mvo_port["weight"][assets_included[i]] = mvo_weight[i]
+	mvo_port_back_test_res = back_testing_procedure(asset_data, mvo_port, \
+														id_ticker_mapping, ticker_id_mapping)
+	cur_price = []
+	for i in range(len(assets_included)):
+		try:
+			cur_price.append(asset_data[assets_included[i]]["price_his"]\
+								[asset_data[assets_included[i]]["dates"].index(dates[0])])
+		except:
+			import pdb; pdb.set_trace()
+	cvar_weight = cvar.get_optimal_weight_by_CVaR(expected_returns, covariance_matrix, cur_price, \
+									10, int(user_input["investment_length"]), \
+									int(user_input["investment_length"] / 4) )
+	cvar_port = {"weight": {}, "start_date": dates[0], "end_date": "2018-10-31"}
+	for i in range(len(assets_included)):
+		if assets_included[i] in id_ticker_mapping:
+			cvar_port["weight"][id_ticker_mapping[assets_included[i]]] = cvar_weight[i]
+		else:
+			cvar_port["weight"][assets_included[i]] = cvar_weight[i]
+	cvar_port_back_test_res = back_testing_procedure(asset_data, cvar_port, \
+														id_ticker_mapping, ticker_id_mapping)
+	import pdb; pdb.set_trace()
+	if cvar_port_back_test_res["stats"]["sharpe"] > mvo_port_back_test_res["stats"]["sharpe"]:
+		return {"port": cvar_port, "back_test": cvar_port_back_test_res}
+	else:
+		return {"port": mvo_port, "back_test": mvo_port_back_test_res}
 
 
 if __name__ == '__main__':
